@@ -3,6 +3,7 @@ package jsonparser
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ var inputs = []struct {
 }
 
 func fixture(tb testing.TB, path string) *bytes.Reader {
-	f, err := os.Open(filepath.Join("../testdata", path+".json.gz"))
+	f, err := os.Open(filepath.Join("./testdata", path+".json.gz"))
 	check(tb, err)
 	defer f.Close()
 	gz, err := gzip.NewReader(f)
@@ -64,6 +65,23 @@ func BenchmarkCountWhitespace(b *testing.B) {
 	}
 }
 
+func TestFuck(t *testing.T) {
+	var buf [8 << 10]byte
+	for _, tc := range inputs {
+		r := fixture(t, tc.path)
+		t.Run(tc.path, func(b *testing.T) {
+			br := byteReader{
+				data: buf[:0],
+				r:    r,
+			}
+			got := countWhitespace(&br)
+			if got != tc.whitespace {
+				b.Fatalf("expected: %v, got: %v", tc.whitespace, got)
+			}
+		})
+	}
+}
+
 func countWhitespace(br *byteReader) int {
 	n := 0
 	w := br.window()
@@ -78,5 +96,6 @@ func countWhitespace(br *byteReader) int {
 			return n
 		}
 		w = br.window()
+		fmt.Println(w)
 	}
 }

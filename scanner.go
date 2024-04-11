@@ -1,6 +1,7 @@
 package jsonparser
 
 import (
+	"fmt"
 	"io"
 )
 
@@ -44,6 +45,8 @@ var whitespace = [256]bool{
 func (s *Scanner) Next() []byte {
 	s.br.release(s.offset)
 	w := s.br.window()
+
+	fmt.Println(w)
 
 	for {
 		for pos, c := range w {
@@ -113,7 +116,7 @@ func (s *Scanner) validateToken(expected string) int {
 func (s *Scanner) parseString() int {
 	escaped := false
 	w := s.br.window()[1:]
-	offset := 0
+	offset := 1
 
 	for {
 		for _, c := range w {
@@ -154,8 +157,10 @@ func (s *Scanner) parseNumber(c byte) int {
 
 	offset := 0
 	w := s.br.window()
-	// int vs uint8 costs 10% on canada.json
+	// int vs uint8 cost 10% on canada.json
 	var state uint8 = begin
+
+	// handle the case that first character is a hyphen
 	if c == '-' {
 		offset++
 	}
@@ -176,13 +181,68 @@ func (s *Scanner) parseNumber(c byte) int {
 				if elem >= '0' && elem <= '9' {
 					// stay in this state
 					break
+				} else if elem == '.' {
+					state = decimal
+					break
 				}
-				fallthrough
 			case leadingzero:
 				if elem == '.' {
-					
+					state = decimal
+					break
 				}
+				if elem == 'e' || elem == 'E' {
+					state = exponent
+					break
+				}
+				return offset // finished.
+			case decimal:
+				if elem >= '0' && elem <= '9' {
+					state = anydigit2
+					break
+				}
+				if elem == 'e' || elem == 'E' {
+					state = exponent
+					break
+				}
+				return offset
+			case exponent:
+				if elem == '+' || elem == '-' {
+					state = expsign
+				} else if elem >= '0' && elem <= '9' {
+					state = anydigit3
+				} else {
+					// error
+					return 0
+				}
+				break
+			case expsign:
+				if elem >= '0' && elem <= '9' {
+					state = anydigit3
+					break
+				}
+				// error
+				return 0
+			case anydigit3:
+				if elem < '0' || elem > '9' {
+					return offset
+				}
+			}
+			offset++
+		}
+		if s.br.extend() == 0 {
+			// end of the item. However, not necessarily an error. Make
+			// sure we are in a state that allows ending the number.
+			switch state {
+			case leadingzero, anydigit1, anydigit2, anydigit3:
+				return offset
+			default:
+				// error otherwise, the number isn't complete.
+				return 0
 			}
 		}
 	}
 }
+
+// Error returns the first error encountered.
+// When underlying reader is exhausted, Error returns io.EOF
+func (s *Scanner) Error() error { return s.br.err }

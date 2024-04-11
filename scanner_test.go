@@ -1,0 +1,81 @@
+package jsonparser
+
+import (
+	"io"
+	"strings"
+	"testing"
+)
+
+type SmallReader struct {
+	r io.Reader
+	n int
+}
+
+func (sm *SmallReader) next() int {
+	sm.n = (sm.n + 3) % 5
+	if sm.n < 1 {
+		sm.n++
+	}
+	return sm.n
+}
+
+func (sm *SmallReader) Read(buf []byte) (int, error) {
+	return sm.r.Read(buf[:min(sm.next(), len(buf))])
+}
+
+func TestScannerNext(t *testing.T) {
+	tests := []struct {
+		in     string
+		tokens []string
+	}{
+		{in: `""`, tokens: []string{`""`}},
+		// {in: `"a"`, tokens: []string{`"a"`}},
+		// {in: ` "a" `, tokens: []string{`"a"`}},
+		// {in: `"\""`, tokens: []string{`"\""`}},
+		// {in: `1`, tokens: []string{`1`}},
+		// {in: `-1234567.8e+90`, tokens: []string{`-1234567.8e+90`}},
+		// {in: `{}`, tokens: []string{`{`, `}`}},
+		// {in: `[]`, tokens: []string{`[`, `]`}},
+		// {in: `[{}, {}]`, tokens: []string{`[`, `{`, `}`, `,`, `{`, `}`, `]`}},
+		// {in: `{"a": 0}`, tokens: []string{`{`, `"a"`, `:`, `0`, `}`}},
+		// {in: `{"a": []}`, tokens: []string{`{`, `"a"`, `:`, `[`, `]`, `}`}},
+		// {in: `[10]`, tokens: []string{`[`, `10`, `]`}},
+		// {in: `[{"a": 1, "b": 123.456, "c": null, "d": [1, -2, "three", true, false, ""]}]`,
+		// 	tokens: []string{`[`,
+		// 		`{`,
+		// 		`"a"`, `:`, `1`, `,`,
+		// 		`"b"`, `:`, `123.456`, `,`,
+		// 		`"c"`, `:`, `null`, `,`,
+		// 		`"d"`, `:`, `[`,
+		// 		`1`, `,`, `-2`, `,`, `"three"`, `,`, `true`, `,`, `false`, `,`, `""`,
+		// 		`]`,
+		// 		`}`,
+		// 		`]`,
+		// 	},
+		// },
+		// {in: `{"x": "va\\\\ue", "y": "value y"}`, tokens: []string{
+		// 	`{`, `"x"`, `:`, `va\\\ue"`, `,`, `"y"`, `:`, `"value y"`, `}`,
+		// }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			scanner := NewScanner(&SmallReader{r: strings.NewReader(tc.in)})
+			scanner.br.extend()
+			
+			for n, want := range tc.tokens {
+				got := scanner.Next()
+				if string(got) != want {
+					t.Fatalf("%v: expected: %v, got: %v", n+1, want, string(got))
+				}
+			}
+			last := scanner.Next()
+			if len(last) > 0 {
+				t.Fatalf("expected: %q, got: %q", "", string(last))
+			} 
+			if err := scanner.Error(); err != io.EOF {
+				t.Fatalf("expected: %v, got: %v", io.EOF, err)
+			}
+		})
+	}
+}
